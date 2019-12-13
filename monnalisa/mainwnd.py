@@ -7,7 +7,7 @@ import json
 import logging
 
 from PyQt5 import QtWidgets, uic
-import xyz
+from . import xyz
 
 
 ACTION_MSG_DICT = {
@@ -23,7 +23,9 @@ class MainWindow(QtWidgets.QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        uic.loadUi('mainwnd.ui', self)
+        ui_path = os.path.join(os.path.dirname(xyz.__file__),
+                               'ui', 'mainwnd.ui')
+        uic.loadUi(ui_path, self)
         self.printer = xyz.XYZPrinter()
         self.printer.message_callback = self.printercallback
 

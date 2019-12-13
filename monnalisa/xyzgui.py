@@ -1,9 +1,9 @@
 from PyQt5 import QtWidgets
 import sys
-import mainwnd
+from . import mainwnd
 import logging
 
-def main()
+def main():
     logging.getLogger().setLevel(logging.INFO)
     app = QtWidgets.QApplication(sys.argv)
     ui = mainwnd.MainWindow()
