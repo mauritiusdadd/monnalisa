@@ -61,9 +61,50 @@ if __name__ == '__main__':
                 logger.info("Waiting for clients")
                 client, client_addr = srv.accept()
                 logger.info("New client accepted from %s", client_addr)
+                _rawbuff = b''
+
+                def client_callback(msg):
+                    try:
+                        client.sendall(xyz.socketmsg(msg))
+                    except BrokenPipeError:
+                        pass
+
+                printer.message_callback = client_callback
+
                 while client:
-                    print(client.recv(1024))
-                    time.sleep(1)
+                    try:
+                        data = client.recv(4096)
+                    except ConnectionError:
+                        # TODO: retry
+                        printer.client_callback = lambda x: None
+                        client = None
+                        continue
+
+                    if data:
+                        _rawbuff += data
+
+                    msg_start = _rawbuff.find(xyz.SocketPort.PACKET_START)
+                    while msg_start >= 0:
+                        msg_start += len(xyz.SocketPort.PACKET_START)
+                        msg_end = _rawbuff.find(
+                            xyz.SocketPort.PACKET_END,
+                            msg_start
+                        )
+
+                        if msg_end < 0:
+                            break
+
+                        action = _rawbuff[msg_start:msg_end]
+                        msg_end += len(xyz.SocketPort.PACKET_END)
+                        _rawbuff = _rawbuff[msg_end+1:]
+
+                        message = xyz._parsemsg(action)
+                        msg_start = _rawbuff.find(
+                            xyz.SocketPort.PACKET_START,
+                            msg_end
+                        ) 
+                        printer.port.write(message)
+
         except (KeyboardInterrupt, SystemExit):
             if client:
                 try:

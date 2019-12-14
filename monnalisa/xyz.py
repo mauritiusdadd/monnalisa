@@ -4,7 +4,7 @@ import serial
 import socket
 import time
 import os
-
+import zlib
 
 F_COLORS = {
     '0': "#CD7F32",
@@ -98,7 +98,27 @@ class GuiLogger(logging.Handler):
             print(self.format(record))
 
 
-class SocketPort(threading.Thread):
+def socketmsg(data):
+    msg = SocketPort.PACKET_START
+    msg += data + b'\n'
+    msg += zlib.crc32(data).to_bytes(16, 'little')
+    msg += SocketPort.PACKET_END
+    return msg
+
+
+def _parsemsg(msg):
+    if msg[-17] != 10:
+        raise ValueError("Corrupted Message")
+    data = msg[:-17]
+    crc = int.from_bytes(msg[-16:], 'little')
+    if zlib.crc32(data) != crc:
+        print(crc)
+        print(zlib.crc32(data))
+        raise ValueError("Corrupted Message: invalid crc32")
+    return data
+
+
+class SocketPort():
 
     PACKET_START = b'<msg>'
     PACKET_END = b'</msg>'
@@ -113,7 +133,8 @@ class SocketPort(threading.Thread):
         self.timeout = timeout
         self._lock = threading.Lock()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.buffer = ''
+        self.buffer = b''
+        self._rawbuff = b''
         try:
             self.port = int(info[1])
         except (IndexError, ValueError):
@@ -123,71 +144,54 @@ class SocketPort(threading.Thread):
         self.socket.connect((self.addr, self.port))
         self.socket.settimeout(timeout)
         self.is_open = True
-        self.start()
 
     def __del__(self):
         self.close()
 
     def readline(self):
         stme = time.time()
-        while '\n' not in self.buffer:
+        while b'\n' not in self.buffer:
+            self.run()
             if time.time() - stme >= self.timeout:
                 return ''
-        line_start = self.buffer.find('\n')
+
+        line_start = self.buffer.find(b'\n')
         line = self.buffer[:line_start]
-        self.buffer = self.buffer[line_start+1]
+        self.buffer = self.buffer[line_start+1:]
         return line
 
     def run(self):
-        buff = b''
-        logging.info("Running socket thread loop")
-        while self.socket and not self._do_stop:
-            try:
-                buff += self.socket.recv(1024)
-            except socket.timeout:
-                time.sleep(0.250)
-                continue
-            except OSError:
-                break
+        self._rawbuff = b''
+        try:
+            self._rawbuff += self.socket.recv(4096)
+        except (socket.timeout, OSError):
+            return
 
-            msg_start = buff.find(self.PACKET_START)
-            if msg_start < 0:
-                continue
-
-            msg_end = buff.find(self.PACKET_END, msg_start+1)
+        msg_start = self._rawbuff.find(self.PACKET_START)
+        while msg_start >= 0:
+            msg_start += len(self.PACKET_START)
+            msg_end = self._rawbuff.find(self.PACKET_END, msg_start+1)
             if msg_end < 0:
-                continue
+                return
 
-            self._parsemsg(buff[msg_start:msg_end])
-            buff = buff[msg_end+len(self.PACKET_END):]
-        self.write(b"close")
-        self._lock.acquire()
-        self.is_open = False
-        self.socket.close()
-        self.socket = None
-        self._lock.release()
-
-    def _parsemsg(self, message):
-        print(message)
+            self.buffer += _parsemsg(self._rawbuff[msg_start:msg_end])
+            self._rawbuff = self._rawbuff[msg_end+len(self.PACKET_END):]
+            msg_start = self._rawbuff.find(self.PACKET_START, msg_end)
 
     def write(self, data):
         if not self.socket or not self.is_open:
             return False
-        msg = self.PACKET_START
-        msg += data
-        msg += self.PACKET_END
         self._lock.acquire()
         if self.socket and self.is_open:
             try:
-                self.socket.sendall(msg)
+                self.socket.sendall(socketmsg(data))
             except BrokenPipeError:
                 self._do_stop = True
         self._lock.release()
 
     def close(self):
-        logging.info("Waiting for socket thread to stop...")
-        self._do_stop = True
-        # self.join()
+        self.is_open = False
+        self.socket.close()
 
 
 class XYZPrinter(threading.Thread):
