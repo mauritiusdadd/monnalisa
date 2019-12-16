@@ -164,9 +164,9 @@ class SocketPort():
     def run(self):
         self._rawbuff = b''
         try:
-            self._rawbuff += self.socket.recv(4096)
+            self._rawbuff += self.socket.recv(1024)
         except (socket.timeout, OSError):
-            return
+            pass
 
         msg_start = self._rawbuff.find(self.PACKET_START)
         while msg_start >= 0:
@@ -177,7 +177,7 @@ class SocketPort():
 
             self.buffer += _parsemsg(self._rawbuff[msg_start:msg_end])
             self._rawbuff = self._rawbuff[msg_end+len(self.PACKET_END):]
-            msg_start = self._rawbuff.find(self.PACKET_START, msg_end)
+            msg_start = self._rawbuff.find(self.PACKET_START)
 
     def write(self, data):
         if not self.socket or not self.is_open:
@@ -273,6 +273,7 @@ class XYZPrinter(threading.Thread):
             if self.port and self.port.is_open:
                 res = self.port.readline()
                 if res:
+                    logging.debug(res)
                     self.message_callback(res)
                 elif self._upload:
                     try:

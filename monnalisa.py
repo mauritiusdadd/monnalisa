@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 import sys
-import time
 import argparse
 import socket
 import logging
+
+from functools import partial
+
 from monnalisa import xyzgui, xyz
+
+
+def client_callback(client, msg):
+    try:
+        client.sendall(xyz.socketmsg(msg))
+    except BrokenPipeError:
+        pass
 
 
 if __name__ == '__main__':
@@ -12,8 +21,8 @@ if __name__ == '__main__':
     parser.add_argument("--server", type=str, nargs='?', metavar='IPADDR',
                         default=False,
                         help="Start the program as a server on the address "
-                        "%(metavar) to control the printer over the network. "
-                        "If no address is specified the server will be "
+                        "%(metavar)s to control the printer over the network."
+                        " If no address is specified the server will be "
                         "reachable any address the machine happens to have.")
     parser.add_argument("--server-port", metavar='PORT', type=int,
                         default=2222, help="Set the port used to create the "
@@ -51,10 +60,11 @@ if __name__ == '__main__':
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((addr, args.server_port))
         srv.listen(5)
+        logger.info("Socket timeout: %s", srv.gettimeout())
         client = None
         printer = xyz.XYZPrinter()
         try:
-            if not printer.connect(args.printer_port, args.baud, timeout=1):
+            if not printer.connect(args.printer_port, args.baud, timeout=3):
                 sys.exit(1)
             while True:
                 logger.info("Waiting for clients")
@@ -62,22 +72,23 @@ if __name__ == '__main__':
                 logger.info("New client accepted from %s", client_addr)
                 _rawbuff = b''
 
-                def client_callback(msg):
-                    try:
-                        client.sendall(xyz.socketmsg(msg))
-                    except BrokenPipeError:
-                        pass
+                printer.message_callback = partial(client_callback, client)
 
-                printer.message_callback = client_callback
-
+                client_error = False
                 while client:
                     try:
-                        data = client.recv(4096)
-                    except ConnectionError:
+                        data = client.recv(1024)
+                        if not data:
+                            client_error = True
+                    except ConnectionError as exc:
                         # TODO: retry
-                        printer.client_callback = lambda x: None
+                        logging.error(exc)
+                        client_error = True
+
+                    if client_error:
+                        printer.message_callback = lambda x: None
                         client = None
-                        continue
+                        break
 
                     if data:
                         _rawbuff += data
