@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import sys
 import time
 import argparse
@@ -38,7 +37,7 @@ if __name__ == '__main__':
         logger.addHandler(clog)
         clog.setLevel(logging.INFO)
         formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
+            '%(asctime)s  %(levelname)s  %(message)s'
         )
         clog.setFormatter(formatter)
 
@@ -102,7 +101,7 @@ if __name__ == '__main__':
                         msg_start = _rawbuff.find(
                             xyz.SocketPort.PACKET_START,
                             msg_end
-                        ) 
+                        )
                         printer.port.write(message)
 
         except (KeyboardInterrupt, SystemExit):

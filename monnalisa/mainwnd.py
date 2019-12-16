@@ -7,6 +7,7 @@ import json
 import logging
 
 from PyQt5 import QtWidgets, uic
+from PyQt5.QtCore import pyqtSignal
 from . import xyz
 
 
@@ -14,6 +15,7 @@ ACTION_MSG_DICT = {
     'home': 'Homing printer',
     'load': 'Loading filament',
     'unload': 'Unloading filament',
+    'upload': 'Sendig file to the printer...'
 }
 
 
@@ -21,15 +23,19 @@ class MainWindow(QtWidgets.QMainWindow):
     """
     The main window of the application
     """
+    processPrinterMessage = pyqtSignal(bytes)
+
     def __init__(self):
         super().__init__()
         ui_path = os.path.join(os.path.dirname(xyz.__file__),
                                'ui', 'mainwnd.ui')
         uic.loadUi(ui_path, self)
+        self.open_dialog = QtWidgets.QFileDialog()
         self.printer = xyz.XYZPrinter()
         self.printer.message_callback = self.printercallback
 
         self.actions = {}
+        self.processPrinterMessage.connect(self.processmessage)
 
         guilogger = xyz.GuiLogger()
         guilogger.edit = self.textEditLog
@@ -41,6 +47,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButtonHome.clicked.connect(self.printer.home)
         self.pushButtonLoad.clicked.connect(self.printer.loadfilemanet)
         self.pushButtonUnload.clicked.connect(self.printer.unloadfilemanet)
+        self.pushButtonAction.clicked.connect(self.printfile)
         self.checkBoxDebug.toggled.connect(self.setloglevel)
 
         self.show()
@@ -110,6 +117,24 @@ class MainWindow(QtWidgets.QMainWindow):
             self.labelE1Material.setText(e1mat)
             self.labelE2Material.setText(e2mat)
 
+        elif key == 'o':
+            opts = val.split(',')
+            for option in opts:
+                if option[0] == 'p':  # p -> block_size
+                    b_size = int(option[1:])
+                    self.printer.block_size = b_size*1024 if b_size > 0 else 0
+                    logging.debug("Setting printer block size %d",
+                                  self.printer.block_size)
+                elif option[0] == 't':
+                    pass
+                elif option[0] == 'c':
+                    pass
+                elif option[0] == 'a':
+                    if option[1] == '+':
+                        self.printer.autoleveling = True
+                    else:
+                        self.printer.autoleveling = False
+
         elif key == 't':
             # extruder temperature
             temps = val.split(',')
@@ -159,10 +184,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.widgetE2Color.setEnabled(False)
 
     def printercallback(self, msg):
+        self.processPrinterMessage.emit(msg)
+
+    def processmessage(self, msg):
         sep = msg.find(b':')
         if sep < 0:
             return
-
         action = msg[:sep].decode()
         json_data = msg[sep+1:]
         if action not in self.printer.ACTIONS:
@@ -171,21 +198,22 @@ class MainWindow(QtWidgets.QMainWindow):
         logging.debug(msg)
         try:
             stat = json.loads(json_data)
-        except json.decoder.JSONDecodeError:
-            print(msg)
-        except ValueError:
-            print(msg)
+        except (json.decoder.JSONDecodeError, ValueError) as exc:
+            logging.error(exc)
         else:
             status_msg = f'{ACTION_MSG_DICT[action]}: '
             if stat['stat'] == 'start':
                 self.actions[action] = 'started'
-                self.busy(True)
+                self.busy(True, pbar=action != 'uploading')
                 status_msg += 'started'
+            if stat['stat'] == 'uploading':
+                self.progressBar.setValue(stat['progress'])
             elif stat['stat'] == 'complete':
                 try:
                     self.actions.pop(action)
                 except KeyError:
                     pass
+                self.progressBar.setValue(0)
                 self.busy(False)
                 status_msg += 'done'
 
@@ -193,7 +221,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar.showMessage(status_msg)
 
     def printfile(self):
-        raise(NotImplementedError)
+        url, ext = self.open_dialog.getOpenFileName()
+        if not os.path.exists(url):
+            return None
+        self.printer.sendFile(url)
 
     def cancelcurrentaction(self):
         for action in list(self.actions.keys()):
@@ -217,8 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pushButtonAction.clicked.connect(self.printfile)
 
     def getportfile(self):
-        f = QtWidgets.QFileDialog()
-        url, ext = f.getOpenFileName()
+        url, ext = self.open_dialog.getOpenFileName()
         if not os.path.exists(url):
             return None
         self.lineEditPortUrl.setText(url)
@@ -238,7 +268,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             port_url = self.lineEditPortUrl.text()
             baud = float(self.comboBoxBaud.currentText())
-            if self.printer.connect(port_url, baud, timeout=1):
+            if self.printer.connect(port_url, baud, timeout=3):
                 self.pushButtonConnect.setText('Disconnect')
                 self.pushButtonPortOpen.setEnabled(False)
                 self.lineEditPortUrl.setEnabled(False)

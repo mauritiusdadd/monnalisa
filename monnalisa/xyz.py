@@ -1,10 +1,11 @@
 import logging
 import threading
-import serial
 import socket
+import math
 import time
 import os
 import zlib
+import serial
 
 F_COLORS = {
     '0': "#CD7F32",
@@ -200,7 +201,7 @@ class XYZPrinter(threading.Thread):
     """
 
     ACTIONS = [
-        'home', 'load', 'unload', 'calibrate'
+        'home', 'load', 'unload', 'calibrate', 'upload'
     ]
 
     def __init__(self):
@@ -208,6 +209,9 @@ class XYZPrinter(threading.Thread):
         self.port = None
         self._do_stop = False
         self._stopped = False
+        self._upload = None
+        self.block_size = None
+        self.autoleveling = None
         self.start()
 
     def stop(self):
@@ -242,10 +246,15 @@ class XYZPrinter(threading.Thread):
     def print(self, val):
         self.sendaction(f'print[{val}]', func='config')
 
+    def sendFile(self, fname):
+        self._upload = fname
+
     def sendaction(self, action, arg=None, func='action'):
-        msg = f'XYZv3/{func}={action}'
-        if arg:
-            msg += f':{arg}'
+        msg = f'XYZv3/{func}'
+        if action:
+            msg += f'={action}'
+            if arg:
+                msg += f':{arg}'
         if self.port and self.port.is_open:
             logging.debug("sending message: %s", msg)
             self.port.write(msg.encode())
@@ -254,13 +263,77 @@ class XYZPrinter(threading.Thread):
         # not implemented, please override
         logging.debug("printer send: %s", msg)
 
+    def _ack(self):
+        return self.port.readline().strip() == b'ok'
+
     def run(self):
         self.stoped = False
+        retry = 0
         while not self._do_stop:
             if self.port and self.port.is_open:
                 res = self.port.readline()
                 if res:
                     self.message_callback(res)
+                elif self._upload:
+                    try:
+                        with open(self._upload, 'rb') as f:
+                            fdata = f.read()
+                    except OSError as exc:
+                        logging.error("Cannot print file %s: %s",
+                                      self._upload, exc)
+                        self._upload = None
+                        continue
+                    else:
+                        flen = len(fdata)
+                    tosd = ''  # ',SaveToSD'
+                    self.sendaction(f'sample.3w,{flen}{tosd}', func='upload')
+                    time.sleep(0.1)
+                    if not self._ack():
+                        logging.error('Printing FAILED: initialization error')
+                        if retry == 0:
+                            logging.info('Retring...')
+
+                        if retry < 3:
+                            retry += 1
+                            logging.info(f'New attempt: {retry}')
+                            time.sleep(1)
+                        else:
+                            retry = 0
+                            self._upload = None
+                        continue
+                    else:
+                        self.message_callback(b'upload:{"stat":"start"}')
+
+                    block_size = self.block_size if self.block_size else 8192
+                    total_blocks = math.ceil(flen/block_size)
+                    for i in range(total_blocks):
+                        data = fdata[i*block_size:(i+1)*block_size]
+                        block = i.to_bytes(4, 'big')
+                        block += len(data).to_bytes(4, 'big')
+                        block += data
+                        block += bytes(4)
+                        prog = 100 * (i + 1) / total_blocks
+                        if self.port.write(block) != len(block):
+                            logging.error("Printing FAILED: "
+                                          "communication error")
+
+                        if not self._ack():
+                            logging.error("Printing FAILED: "
+                                          "cannot write data to the printer!")
+                            self._upload = None
+                            self.message_callback(
+                                b'upload:{"stat":"complete"}'
+                            )
+                            break
+                        msg = 'upload:{"stat":"uploading",'
+                        msg += f'"progress":{prog}}}'
+                        self.message_callback(msg.encode())
+
+                    while not self._ack():
+                        self.sendaction('', func='uploadDidFinish')
+                        time.sleep(0.1)
+                    self.message_callback(b'upload:{"stat":"complete"}')
+                    self._upload = None
                 else:
                     self.query()
                     time.sleep(0.250)
