@@ -201,7 +201,7 @@ class XYZPrinter(threading.Thread):
     """
 
     ACTIONS = [
-        'home', 'load', 'unload', 'calibrate', 'upload'
+        'home', 'load', 'unload', 'calibrate', 'upload', 'image'
     ]
 
     def __init__(self):
@@ -212,6 +212,7 @@ class XYZPrinter(threading.Thread):
         self._upload = None
         self.block_size = None
         self.autoleveling = None
+        self._print_status = None
         self.start()
 
     def stop(self):
@@ -234,11 +235,16 @@ class XYZPrinter(threading.Thread):
             self.port = None
             return False
         logging.info("Connected")
+
+        self._print_status = 'ready'
         return True
 
     def disconnect(self):
         if self.port:
             self.port.close()
+
+    def getprintstatus(self):
+        return self._print_status if self._print_status else 'ready'
 
     def query(self, stat='a'):
         self.sendaction('a', func='query')
@@ -334,6 +340,7 @@ class XYZPrinter(threading.Thread):
                         self.sendaction('', func='uploadDidFinish')
                         time.sleep(0.1)
                     self.message_callback(b'upload:{"stat":"complete"}')
+                    self._print_status = 'printing'
                     self._upload = None
                 else:
                     self.query()

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>831</width>
-    <height>572</height>
+    <width>1388</width>
+    <height>822</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -33,6 +33,13 @@
        <bool>false</bool>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
+        <widget class="QLabel" name="labelRemoteImage">
+         <property name="text">
+          <string>${Remote Image}</string>
+         </property>
+        </widget>
+       </item>
        <item>
         <widget class="QTextEdit" name="textEditLog">
          <property name="enabled">
@@ -96,6 +103,13 @@
           <widget class="QPushButton" name="pushButtonAction">
            <property name="text">
             <string>Print</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="pushButtonPause">
+           <property name="text">
+            <string>Pause</string>
            </property>
           </widget>
          </item>

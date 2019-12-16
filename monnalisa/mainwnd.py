@@ -42,6 +42,10 @@ class MainWindow(QtWidgets.QMainWindow):
         guilogger.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(guilogger)
 
+        self.pushButtonPause.hide()
+        self.labelRemoteImage.hide()
+
+        self.pushButtonPause.clicked.connect(self.pauseprint)
         self.pushButtonPortOpen.clicked.connect(self.getportfile)
         self.pushButtonConnect.clicked.connect(self.connectprinter)
         self.pushButtonHome.clicked.connect(self.printer.home)
@@ -73,8 +77,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     if not self.actions:
                         self.busy(False)
+                        self.pushButtonPause.hide()
+                        self._print_status = 'ready'
                 return
             ptime = val.split(',')
+            self.pushButtonPause.show()
             print_perc = float(ptime[0])
             print_elapsed = float(ptime[1])
             print_remain = float(ptime[2])
@@ -86,7 +93,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar.showMessage(msg)
 
         elif key == 'f':
-            # remaininf filament
+            # remaining filament
             flen = val.split(',')
             n_extruders = int(flen[0])
             if n_extruders > 0:
@@ -202,11 +209,13 @@ class MainWindow(QtWidgets.QMainWindow):
             logging.error(exc)
         else:
             status_msg = f'{ACTION_MSG_DICT[action]}: '
-            if stat['stat'] == 'start':
+            if action == 'image':
+                print("incoming image...")
+            elif stat['stat'] == 'start':
                 self.actions[action] = 'started'
                 self.busy(True, pbar=action != 'uploading')
                 status_msg += 'started'
-            if stat['stat'] == 'uploading':
+            elif stat['stat'] == 'uploading':
                 self.progressBar.setValue(stat['progress'])
             elif stat['stat'] == 'complete':
                 try:
@@ -220,16 +229,25 @@ class MainWindow(QtWidgets.QMainWindow):
             if status_msg:
                 self.statusBar.showMessage(status_msg)
 
+    def pauseprint(self):
+        if self.printer.getprintstatus() == 'paused':
+            if self.printer.print('resume'):
+                self.printer._print_status = 'printing'
+        elif self.printer.getprintstatus() == 'printing':
+            if self.printing.print('pause'):
+                self.printer._print_status = 'paused'
+
     def printfile(self):
         url, ext = self.open_dialog.getOpenFileName()
         if not os.path.exists(url):
             return None
         self.printer.sendFile(url)
+        self.pushButtonPause.show()
 
     def cancelcurrentaction(self):
+        self.printer.print('cancel')
         for action in list(self.actions.keys()):
             self.printer.sendaction(action, 'cancel')
-        self.printer.print('cancel')
 
     def busy(self, val, pbar=False):
         try:

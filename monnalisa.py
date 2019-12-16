@@ -2,9 +2,17 @@
 import sys
 import argparse
 import socket
+import time
 import logging
+import threading
 
 from functools import partial
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    HAS_CV2 = False
 
 from monnalisa import xyzgui, xyz
 
@@ -14,6 +22,29 @@ def client_callback(client, msg):
         client.sendall(xyz.socketmsg(msg))
     except BrokenPipeError:
         pass
+
+
+class CamThread(threading.Thread):
+
+    def __init__(self, cam, interval=1):
+        super().__init__()
+        self._do_stop = False
+        self.cam = cam
+        self.interval = interval
+        self.start()
+
+    def onImageCallback(self, image):
+        pass
+
+    def stop(self):
+        self._do_stop = True
+        self.join()
+
+    def run(self):
+        while not self._do_stop:
+            ret, frame = self.cam.read()
+            self.onImageCallback(frame)
+            time.sleep(self.interval)
 
 
 if __name__ == '__main__':
@@ -62,6 +93,14 @@ if __name__ == '__main__':
         srv.listen(5)
         logger.info("Socket timeout: %s", srv.gettimeout())
         client = None
+
+        if HAS_CV2:
+            device = 0
+            logger.info("Opening video stream with device %d", device)
+            remote_cam = cv2.VideoCapture(0)
+            cam_thread = CamThread(remote_cam, 5)
+
+        logger.info("Creating printer object...")
         printer = xyz.XYZPrinter()
         try:
             if not printer.connect(args.printer_port, args.baud, timeout=3):
@@ -72,7 +111,10 @@ if __name__ == '__main__':
                 logger.info("New client accepted from %s", client_addr)
                 _rawbuff = b''
 
-                printer.message_callback = partial(client_callback, client)
+                if HAS_CV2:
+                    client_send_message = partial(client_callback, client)
+                printer.message_callback = client_send_message
+                cam_thread.onImageCallback = client_send_message
 
                 client_error = False
                 while client:
@@ -124,5 +166,7 @@ if __name__ == '__main__':
                     pass
                 else:
                     client.close()
-            srv.close()
+            if HAS_CV2:
+                cam_thread.stop()
             printer.stop()
+            srv.close()
