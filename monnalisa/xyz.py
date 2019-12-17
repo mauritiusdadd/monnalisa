@@ -113,9 +113,7 @@ def _parsemsg(msg):
     data = msg[:-17]
     crc = int.from_bytes(msg[-16:], 'little')
     if zlib.crc32(data) != crc:
-        print(crc)
-        print(zlib.crc32(data))
-        raise ValueError("Corrupted Message: invalid crc32")
+        logging.error("Corrupted Message: invalid crc32")
     return data
 
 
@@ -164,7 +162,7 @@ class SocketPort():
     def run(self):
         self._rawbuff = b''
         try:
-            self._rawbuff += self.socket.recv(1024)
+            self._rawbuff += self.socket.recv(4096)
         except (socket.timeout, OSError):
             pass
 
@@ -238,6 +236,10 @@ class XYZPrinter(threading.Thread):
 
         self._print_status = 'ready'
         return True
+
+    def sendAck(self, resp=b''):
+        ack = b'ok:' + resp + b'\n'
+        self.port.write(ack)
 
     def disconnect(self):
         if self.port:

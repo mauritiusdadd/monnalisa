@@ -5,9 +5,13 @@ ${HEADER}
 import os
 import json
 import logging
+import io
+import base64
+import zlib
 
 from PyQt5 import QtWidgets, uic
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QPixmap
 from . import xyz
 
 
@@ -15,7 +19,8 @@ ACTION_MSG_DICT = {
     'home': 'Homing printer',
     'load': 'Loading filament',
     'unload': 'Unloading filament',
-    'upload': 'Sendig file to the printer...'
+    'upload': 'Sendig file to the printer...',
+    'image': 'Incoming image...'
 }
 
 
@@ -35,6 +40,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.printer.message_callback = self.printercallback
 
         self.actions = {}
+        self._image = {
+            'id': b'',
+            'data': io.BytesIO(),
+        }
         self.processPrinterMessage.connect(self.processmessage)
 
         guilogger = xyz.GuiLogger()
@@ -210,7 +219,18 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             status_msg = f'{ACTION_MSG_DICT[action]}: '
             if action == 'image':
-                print("incoming image...")
+                self.printer.sendAck(b'image')
+                try:
+                    if stat['id'] != self._image['id']:
+                        self._image['data'].close()
+                        self._image['data'] = io.BytesIO()
+                        self._image['id'] = stat['id']
+                    self._image['data'].seek(stat['offset'])
+                    self._image['data'].write(stat['data'].encode())
+                    self._image['shape'] = stat['shape']
+                except KeyError:
+                    logging.debug("New image received")
+                    self.showimage()
             elif stat['stat'] == 'start':
                 self.actions[action] = 'started'
                 self.busy(True, pbar=action != 'uploading')
@@ -228,6 +248,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
             if status_msg:
                 self.statusBar.showMessage(status_msg)
+
+    def showimage(self):
+        fio = self._image['data']
+        fio.seek(0)
+        try:
+            data = zlib.decompress(base64.b64decode(fio.read()))
+        except zlib.error:
+            logging.error('Incoming image data is corrutped!')
+            return
+        height, width = self._image['shape'][:2]
+        pix = QPixmap(width, height)
+        pix.loadFromData(data)
+        self.labelRemoteImage.setPixmap(pix)
+        self.labelRemoteImage.show()
 
     def pauseprint(self):
         if self.printer.getprintstatus() == 'paused':
