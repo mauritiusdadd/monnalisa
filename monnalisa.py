@@ -5,6 +5,9 @@ import socket
 import time
 import logging
 import threading
+import zlib
+import uuid
+import base64
 
 from functools import partial
 
@@ -20,7 +23,7 @@ from monnalisa import xyzgui, xyz
 def client_callback(client, msg):
     try:
         client.sendall(xyz.socketmsg(msg))
-    except BrokenPipeError:
+    except (BrokenPipeError, ConnectionError):
         pass
 
 
@@ -31,19 +34,50 @@ class CamThread(threading.Thread):
         self._do_stop = False
         self.cam = cam
         self.interval = interval
+        self._lock = threading.Lock()
         self.start()
+        self.packet_size = 1024
 
     def onImageCallback(self, image):
         pass
 
     def stop(self):
         self._do_stop = True
+        self.ack()
         self.join()
+
+    def ack(self):
+        if self._lock.locked():
+            self._lock.release()
 
     def run(self):
         while not self._do_stop:
+            print('sending image...')
             ret, frame = self.cam.read()
-            self.onImageCallback(frame)
+            frame = frame[::2, ::2]
+            img_id = str(uuid.uuid4()).encode()
+            shape = frame.shape
+            if HAS_CV2:
+                data = cv2.imencode('.png', frame)[1]
+            else:
+                data = frame.tobytes()
+            data = zlib.compress(data, 9)
+            data = base64.b64encode(data)
+            for off in range(0, len(data), self.packet_size):
+                stripe = data[off:off+self.packet_size]
+                msg = b'image:{'
+                msg += b'"id":"' + img_id + b'",'
+                msg += b'"shape":' + ('['+str(shape)[1:-1]+']').encode()+b','
+                msg += b'"offset":' + str(off).encode() + b','
+                msg += b'"data":"' + stripe + b'"}\n'
+                self._lock.acquire()
+                send_time = time.time()
+                self.onImageCallback(msg)
+                while self._lock.locked():
+                    if time.time() - send_time > 10:
+                        self.onImageCallback(msg)
+                        send_time = time.time()
+            self.onImageCallback(b'image:{"id":"' + img_id + b'"}\n')
             time.sleep(self.interval)
 
 
@@ -98,7 +132,7 @@ if __name__ == '__main__':
             device = 0
             logger.info("Opening video stream with device %d", device)
             remote_cam = cv2.VideoCapture(0)
-            cam_thread = CamThread(remote_cam, 5)
+            cam_thread = CamThread(remote_cam, 10)
 
         logger.info("Creating printer object...")
         printer = xyz.XYZPrinter()
@@ -155,7 +189,11 @@ if __name__ == '__main__':
                             xyz.SocketPort.PACKET_START,
                             msg_end
                         )
-                        printer.port.write(message)
+                        if message.startswith(b'ok:'):
+                            if message.endswith(b':image\n'):
+                                cam_thread.ack()
+                        else:
+                            printer.port.write(message)
 
         except (KeyboardInterrupt, SystemExit):
             if client:

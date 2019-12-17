@@ -15,7 +15,8 @@ ACTION_MSG_DICT = {
     'home': 'Homing printer',
     'load': 'Loading filament',
     'unload': 'Unloading filament',
-    'upload': 'Sendig file to the printer...'
+    'upload': 'Sendig file to the printer...',
+    'image': 'Incoming image...'
 }
 
 
