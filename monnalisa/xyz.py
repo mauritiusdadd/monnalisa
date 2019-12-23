@@ -237,7 +237,7 @@ class XYZPrinter(threading.Thread):
     """
 
     ACTIONS = [
-        'home', 'load', 'unload', 'calibrate', 'upload', 'image'
+        'home', 'load', 'unload', 'calibratejr', 'upload', 'image'
     ]
 
     def __init__(self):
@@ -431,6 +431,17 @@ class XYZPrinter(threading.Thread):
     def cancelunloadfilemanet(self):
         logging.info("Loading filament...")
         self.sendaction("unload", "cancel")
+
+    def calibrationinit(self):
+        logging.info("Waiting for caliration sensor...")
+        self.sendaction("calibratejr", "new")
+
+    def calibrationrun(self):
+        logging.info("Calibrating...")
+        self.sendaction("calibratejr", "detectorok")
+
+    def calibrationdone(self):
+        self.sendaction("calibratejr", "release")
 
 
 def gcode2www(gcode, version, zipped, machine_id):

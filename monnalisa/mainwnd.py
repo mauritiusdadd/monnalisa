@@ -20,7 +20,8 @@ ACTION_MSG_DICT = {
     'load': 'Loading filament',
     'unload': 'Unloading filament',
     'upload': 'Sendig file to the printer...',
-    'image': 'Incoming image...'
+    'image': 'Incoming image...',
+    'calibratejr': 'Calibrating printer head',
 }
 
 
@@ -60,6 +61,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButtonHome.clicked.connect(self.printer.home)
         self.pushButtonLoad.clicked.connect(self.printer.loadfilemanet)
         self.pushButtonUnload.clicked.connect(self.printer.unloadfilemanet)
+        self.pushButtonCalib.clicked.connect(self.printer.calibrationinit)
         self.pushButtonAction.clicked.connect(self.printfile)
         self.checkBoxDebug.toggled.connect(self.setloglevel)
 
@@ -224,8 +226,21 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             stat = json.loads(json_data)
         except (json.decoder.JSONDecodeError, ValueError) as exc:
-            logging.error(exc)
-        else:
+            if action == 'calibratejr':
+                stat = {None: []}
+                json_data = json_data.decode().strip('{}\n\t ')
+                for item in json_data.split(','):
+                    try:
+                        key, val = item.split(':')
+                        key = key.strip('"\'').strip()
+                        val = val.strip('"\'').strip()
+                        stat[key] = val
+                    except ValueError:
+                        stat[None].append(item)
+            else:
+                logging.error(exc)
+                return
+        if stat:
             status_msg = f'{ACTION_MSG_DICT[action]}: '
             if action == 'image':
                 self.printer.sendAck(b'image')
@@ -240,6 +255,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 except KeyError:
                     logging.debug("New image received")
                     self.showimage()
+            elif action == 'calibratejr':
+                if stat['stat'] == 'pressdetector':
+                    msg = QtWidgets.QMessageBox.information(
+                        None, "Calibration",
+                        "Lower the calibration detenctor and then press ok",
+                        QtWidgets.QMessageBox.Ok
+                    )
+                    self.printer.calibrationrun()
+                    self.busy(True)
+                elif stat['stat'] == 'ok':
+                    msg = QtWidgets.QMessageBox.information(
+                        None, "Calibration",
+                        "Raise the calibration detenctor and then press ok",
+                        QtWidgets.QMessageBox.Ok
+                    )
+                    self.printer.calibrationdone()
+                self.busy(False)
+
             elif stat['stat'] == 'start':
                 self.actions[action] = 'started'
                 self.busy(True, pbar=action != 'uploading')
@@ -277,7 +310,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.printer.print('resume'):
                 self.printer._print_status = 'printing'
         elif self.printer.getprintstatus() == 'printing':
-            if self.printing.print('pause'):
+            if self.printer.print('pause'):
                 self.printer._print_status = 'paused'
 
     def printfile(self):
