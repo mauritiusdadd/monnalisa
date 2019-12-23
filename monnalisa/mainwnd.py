@@ -133,6 +133,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.labelE1Material.setText(e1mat)
             self.labelE2Material.setText(e2mat)
 
+        elif key == 'n':
+            self.printer.name = val
+            self.labelPrinterName.setText(val)
+
         elif key == 'o':
             opts = val.split(',')
             for option in opts:
@@ -150,6 +154,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.printer.autoleveling = True
                     else:
                         self.printer.autoleveling = False
+        elif key == 'p':
+            self.printer.setid(val)
+            self.labelPrinterId.setText(f"({val})")
+            self.checkBoxZipped.setChecked(self.printer.zipped)
+            self.radioButton3wV2.setChecked(self.printer.version == 2)
 
         elif key == 't':
             # extruder temperature

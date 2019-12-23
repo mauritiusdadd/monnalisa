@@ -4,8 +4,12 @@ import socket
 import math
 import time
 import os
+import io
+import zipfile
 import zlib
 import serial
+
+from Crypto.Cipher import AES
 
 F_COLORS = {
     '0': "#CD7F32",
@@ -63,6 +67,40 @@ F_MATERIAL = {
     '51': "PLA-1",
     '54': "PLA-T",
     '56': "PVA",
+}
+
+MACHINES = {
+    "daVinciF10": (2, True, False),
+    "daVinciF10": (2, True, False),
+    "daVinciF10": (2, True, False),
+    "daVinciF11": (2, True, True),
+    "daVinciF20": (2, True, False),
+    "daVinciF20": (2, True, False),
+    "daVinciJR10": (2, False, True),
+    "dv1JA0A000": (2, False, True),
+    "daVinciJR10W": (2, False, True),
+    "dv1JSOA000": (2, False, True),
+    "daVinciJR10S": (5, False, True),
+    "daVinciJR20W": (2, False, True),
+    "dv1MX0A000": (2, False, True),
+    "dv1MW0A000": (2, False, True),
+    "dv1MW0B000": (2, False, True),
+    "dv1MW0C000": (2, False, True),
+    "dv1NX0A000": (2, False, True),
+    "dv1NW0A000": (2, False, True),
+    "dv1JP0A000": (5, False, True),
+    "dv1JPWA000": (5, False, True),
+    "daVinciAW10": (5, False, True),
+    "daVinciAS10": (5, False, True),
+    "dv1SW0A000": (5, False, True),
+}
+
+
+XYZ_HEADER_KEYS = {
+    'TIME': 'print_time',
+    'LAYER_COUNT': 'total_layers',
+    'Filament used': 'total_filament',
+    'FLAVOR': None,
 }
 
 
@@ -211,12 +249,26 @@ class XYZPrinter(threading.Thread):
         self.block_size = None
         self.autoleveling = None
         self._print_status = None
+        self.name = ""
+        self.id = ""
+        self.zipped = False
+        self.version = 2
         self.start()
 
     def stop(self):
         self._do_stop = True
         self.disconnect()
         # self.join()
+
+    def setid(self, uid):
+        try:
+            specs = MACHINES[uid]
+        except KeyError:
+            self.id = uid
+        else:
+            self.id = uid
+            self.version = specs[0]
+            self.zipped = specs[1]
 
     def connect(self, port, baud=9600, **args) -> bool:
         try:
@@ -287,6 +339,15 @@ class XYZPrinter(threading.Thread):
                     try:
                         with open(self._upload, 'rb') as f:
                             fdata = f.read()
+                            print(fdata[0:10])
+                            if not fdata.startswith(b'3DPFNKG13WTW'):
+                                logging.info("Converting to 3w format...")
+                                fdata = gcode2www(
+                                    fdata.decode(),
+                                    self.version,
+                                    self.zipped,
+                                    self.id
+                                )
                     except OSError as exc:
                         logging.error("Cannot print file %s: %s",
                                       self._upload, exc)
@@ -370,3 +431,156 @@ class XYZPrinter(threading.Thread):
     def cancelunloadfilemanet(self):
         logging.info("Loading filament...")
         self.sendaction("unload", "cancel")
+
+
+def gcode2www(gcode, version, zipped, machine_id):
+
+    BODY_OFFSET = 0x2000
+    PACKET_SIZE = 0x2000
+
+    xyz_header_dict = {
+        'filename': 'sample.3w',
+        'print_time': 60,
+        'machine': machine_id,
+        'facets': 50,
+        'total_layers': 10,
+        'version': 18020109,
+        'total_filament': 1.0,
+    }
+
+    for key in XYZ_HEADER_KEYS:
+        key_start = gcode.find(f';{key}:')
+        key_end = gcode.find('\n', key_start)
+
+        if key_start < 0:
+            continue
+
+        line = gcode[key_start:key_end].replace(' ', '')
+        _, val = line.split(':')
+        if XYZ_HEADER_KEYS[key] is not None:
+            xyz_header_dict[XYZ_HEADER_KEYS[key]] = val
+
+    header_end = 0
+    while header_end >= 0:
+        header_end = gcode.find('\n', header_end+1)
+        if gcode[header_end+1] != ';':
+            break
+
+    gcode_header = gcode[:header_end+1]
+    gcode = gcode[header_end+1:]
+
+    for key in xyz_header_dict:
+        key_start = gcode_header.find(f'; {key} =')
+        key_end = gcode_header.find('\n', key_start)
+
+        if key_start < 0:
+            continue
+
+        line = gcode_header[key_start:key_end].replace(' ', '')
+        _, val = line.split('=')
+        xyz_header_dict[key] = val
+        gcode_header = gcode_header[:key_start] + gcode_header[key_end+1:]
+
+    header = '\n'.join(
+        [f'; {k:s} = {v}' for k, v in xyz_header_dict.items()]
+    )
+    header += gcode_header
+    header = header.encode()
+
+    gcode = header + gcode.replace('G0 ', 'G1 ').encode()
+
+    padding = pad16(len(header))
+    header += bytes([padding, ]*padding)
+
+    if version == 2:
+        # encrypt the header
+        aes_cbc = AES.new(
+            b'@xyzprinting.com',
+            AES.MODE_CBC,
+            b'\x00'*16
+        )
+        header = aes_cbc.encrypt(header)
+
+    if version == 2:
+        if zipped:
+
+            with io.BytesIO() as bytesio:
+                with zipfile.ZipFile(bytesio, "w",
+                                     zipfile.ZIP_DEFLATED) as zip_obj:
+                    zip_obj.writestr("sample.3w", gcode)
+                bytesio.seek(0)
+                body_data = bytesio.read()
+
+            off = 0
+            body = b''
+            while off < len(body_data):
+                aes_cbc = AES.new(
+                    b'@xyzprinting.com',
+                    AES.MODE_CBC,
+                    b'\x00'*16
+                )
+                packet = body_data[off:off + PACKET_SIZE]
+                padding = pad16(len(packet))
+                packed = packet + bytes([padding, ]*padding)
+                body += aes_cbc.encrypt(packed)
+                off += PACKET_SIZE
+        else:
+            aes_ecb = AES.new(b'@xyzprinting.com@xyzprinting.com',
+                              AES.MODE_ECB)
+            padding = pad16(len(gcode))
+            body = gcode + bytes([padding, ]*padding)
+            body = aes_ecb.encrypt(body)
+    else:
+        padding = pad16(len(gcode))
+        body = gcode + bytes([padding, ]*padding)
+
+    with io.BytesIO() as stream:
+        stream.write(b'3DPFNKG13WTW')
+        stream.write(bytes([1, version, 0, 0]))
+
+        zip_start = ceil16(4688 + stream.tell()) - stream.tell() - 4
+
+        stream.write(zip_start.to_bytes(4, byteorder='big'))
+        stream.write(bytes(zip_start))
+
+        if zipped:
+            stream.write(b'TagEa128')
+        else:
+            stream.write(b'TagEJ256')
+
+        if version == 5:
+            stream.write(len(header).to_bytes(4, byteorder='big'))
+
+        header_start = ceil16(68 + stream.tell()) - stream.tell() - 4
+        stream.write(header_start.to_bytes(4, byteorder='big'))
+
+        if version == 5:
+            stream.write(bytes([0, 0, 0, 1]))
+
+        stream.write(zlib.crc32(body).to_bytes(4, byteorder='big'))
+
+        if version == 5:
+            stream.write(bytes(header_start-8))
+        else:
+            stream.write(bytes(header_start-4))
+
+        stream.write(header)
+        stream.write(bytes(BODY_OFFSET - stream.tell()))
+        stream.seek(BODY_OFFSET)
+        stream.write(body)
+        stream.seek(0)
+        return stream.read()
+
+
+def pad16(val):
+    return 16 - val % 16
+
+
+def ceil16(val):
+    if val % 16 == 0:
+        return val
+    return val + pad16(val)
+
+
+def floor16(val):
+    return val - (val % 16)
