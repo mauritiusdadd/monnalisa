@@ -443,6 +443,14 @@ class XYZPrinter(threading.Thread):
     def calibrationdone(self):
         self.sendaction("calibratejr", "release")
 
+    def jog(self, axis, jog):
+        jog_dir = "+" if jog >= 0 else '-'
+        jog_len = abs(jog)
+        self.sendaction(
+            "jog",
+            f'{{"axis":"{axis}","dir":"{jog_dir}","len":"{jog_len}"}}'
+        )
+
 
 def gcode2www(gcode, version, zipped, machine_id):
 

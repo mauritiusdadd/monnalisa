@@ -63,6 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButtonUnload.clicked.connect(self.printer.unloadfilemanet)
         self.pushButtonCalib.clicked.connect(self.printer.calibrationinit)
         self.pushButtonAction.clicked.connect(self.printfile)
+        self.pushButtonJog.clicked.connect(self.dojog)
         self.checkBoxDebug.toggled.connect(self.setloglevel)
 
         self.show()
@@ -304,6 +305,11 @@ class MainWindow(QtWidgets.QMainWindow):
         pix.loadFromData(data)
         self.labelRemoteImage.setPixmap(pix)
         self.labelRemoteImage.show()
+
+    def dojog(self):
+        axis = self.comboBoxAxis.currentText().lower()
+        jog = self.doubleSpinBoxJog.value()
+        self.printer.jog(axis, jog)
 
     def pauseprint(self):
         if self.printer.getprintstatus() == 'paused':
