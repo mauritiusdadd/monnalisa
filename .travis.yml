@@ -1,0 +1,20 @@
+language: python
+
+os:
+  - linux
+  - osx
+  - windows
+
+sudo: off
+
+python:
+  - "3.6"
+  - "3.7"
+  - "3.8"
+
+# command to install dependencies
+install:
+  python setup.py install
+
+script:
+  - monnalisa --version
