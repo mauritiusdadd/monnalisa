@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
     LONG_DESCRIPTION = fh.read()
 
 setuptools.setup(
-    name="seneca",
+    name="monnalisa",
     version="${PROGRAM_VERSION}",
     author="Maurizio D'Addona",
     author_email="mauritiusdadd@gmail.com",
@@ -24,7 +24,7 @@ setuptools.setup(
     ],
     python_requires='>=3.6',
     install_requires=[
-        'pyqt5'
+        'pyqt5',
         'pyserial'
     ],
     extras_require={
@@ -34,7 +34,7 @@ setuptools.setup(
         'console_scripts': [
             'monnalisa-server=monnalisa.server:main'
         ],
-        'scripts': [
+        'gui_scripts': [
             'monnalisa=monnalisa.xyzgui:main'
         ],
     },
