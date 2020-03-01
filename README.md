@@ -1,4 +1,4 @@
-### What is Monnalisa?
+### Monnalisa [![Build Status](https://travis-ci.com/mauritiusdadd/monnalisa.svg?branch=master)](https://travis-ci.com/mauritiusdadd/monnalisa)
 
 Monnalisa an interface to Da Vinci printers
 

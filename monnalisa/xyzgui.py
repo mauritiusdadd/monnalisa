@@ -8,6 +8,7 @@ from . import mainwnd
 import logging
 
 def main():
+    
     logging.getLogger().setLevel(logging.INFO)
     app = QtWidgets.QApplication(sys.argv)
     ui = mainwnd.MainWindow()

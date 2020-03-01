@@ -22,6 +22,7 @@ try:
 except ImportError:
     HAS_CV2 = False
 
+import monnalisa
 from monnalisa import xyzgui, xyz
 
 
@@ -105,8 +106,14 @@ def main():
                         "serial connection tiwth the printer. If this option "
                         "is not specified then the default vaule ob 9600 is "
                         "used")
+    parser.add_argument("--version", action='store_true')
 
     args = parser.parse_args()
+
+    if args.version:
+        print(f"Monnalisa v{monnalisa.__version__}")
+        sys.exit(0)
+
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     clog = logging.StreamHandler()

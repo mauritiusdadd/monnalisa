@@ -2,19 +2,13 @@ language: python
 
 os:
   - linux
-  - osx
-  - windows
-
-sudo: off
 
 python:
-  - "3.6"
-  - "3.7"
   - "3.8"
 
-# command to install dependencies
 install:
-  pip install -r requirements.txt
-
+  - python3 -m pip install -r requirements.txt
+  - python3 setup.py install
+  
 script:
-  - monnalisa --version
+  - monnalisa-server --version
