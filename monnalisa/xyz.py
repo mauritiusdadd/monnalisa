@@ -506,7 +506,10 @@ def gcode2www(gcode, version, zipped, machine_id):
     header += gcode_header
     header = header.encode()
 
-    gcode = header + gcode.replace('G0 ', 'G1 ').encode()
+    gcode = gcode.replace('G0 ', 'G1 ')
+    gcode = gcode.replace('G00 ', 'G1 ')
+    gcode = gcode.replace('G01 ', 'G1 ')
+    gcode = header + gcode.encode()
 
     padding = pad16(len(header))
     header += bytes([padding, ]*padding)
