@@ -1,3 +1,7 @@
+"""
+${LICENSE_HEADER}
+"""
+
 from PyQt5 import QtWidgets
 import sys
 from . import mainwnd

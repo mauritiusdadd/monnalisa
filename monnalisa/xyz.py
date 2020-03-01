@@ -1,3 +1,7 @@
+"""
+${LICENSE_HEADER}
+"""
+
 import logging
 import threading
 import socket

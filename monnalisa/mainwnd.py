@@ -1,5 +1,5 @@
 """
-${HEADER}
+${LICENSE_HEADER}
 """
 
 import os
