@@ -24,8 +24,9 @@ setuptools.setup(
     ],
     python_requires='>=3.6',
     install_requires=[
-        'pyqt5',
-        'pyserial'
+        'PyQt5',
+        'pyserial',
+        'pycryptodome'
     ],
     extras_require={
         'Webcam interface for server': 'cv2',
